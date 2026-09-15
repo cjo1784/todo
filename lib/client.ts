@@ -25,6 +25,7 @@ const CODE_TEXT: Record<string, string> = {
   INVALID_REFERENCE: "연결하려는 항목이 없습니다. 새로고침 후 다시 선택해 주세요",
   NOT_FOUND: "항목을 찾을 수 없습니다. 이미 삭제되었을 수 있습니다",
   INTERNAL_ERROR: "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요",
+  UNAUTHORIZED: "로그인이 필요합니다",
 };
 
 type ErrorBody = { error?: { code?: string; message?: string; details?: Record<string, string> | null } } | null;
@@ -52,6 +53,10 @@ export async function api<T = void>(path: string, method = "GET", body?: unknown
     throw new ApiError("서버에 연결할 수 없습니다. 네트워크를 확인해 주세요");
   }
   if (res.status === 204) return undefined as T; // DELETE: body 없음
+  // 세션 만료 등: 로그인 화면으로 이동. 호출부는 아래 ApiError로 평소처럼 처리됨
+  // 컴포넌트 밖 fetch 래퍼라 useRouter 사용 불가 + 세션 상태를 새로 읽도록 전체 페이지 이동이 의도
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+  if (res.status === 401 && window.location.pathname !== "/login") window.location.assign("/login");
   const json: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     const err = (json as ErrorBody)?.error;

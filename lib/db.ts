@@ -13,12 +13,13 @@ export function connectDB() {
   return cache.mongooseConn;
 }
 
-// 모든 모델 공통 JSON 형태: _id → id(string), __v 제거
+// 모든 모델 공통 JSON 형태: _id → id(string), __v 제거, userId(소유자)는 응답에 노출하지 않음
 export const toJSON = {
   virtuals: true,
   versionKey: false,
   transform: (_doc: unknown, ret: Record<string, unknown>) => {
     delete ret._id;
+    delete ret.userId;
     return ret;
   },
 };

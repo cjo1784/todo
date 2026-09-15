@@ -8,7 +8,8 @@
 | 항목 | 결정 | 근거 |
 | --- | --- | --- |
 | 앱 형태 | 웹앱 + 서버 DB | 사용자 선택 |
-| 사용자 | 로그인 없음, 단일 사용자 | 사용자 선택, PRD에 인증 요구 없음 |
+| 사용자 | ~~로그인 없음, 단일 사용자~~ → GitHub OAuth 로그인, 사용자별 데이터 격리 (2026-09-15 변경) | 사용자 요청. 상세 결정·계약은 `artifacts/00-input.md` |
+| 인증 | OAuth 직접 구현(새 의존성 없음) + MongoDB 세션 + httpOnly 쿠키, 화면은 `proxy.ts` 리다이렉트 / API는 401 | 요구 경로 `/auth/github`, 로그아웃 시 서버 세션 삭제 보장 |
 | 프레임워크 | Next.js (App Router) + TypeScript | 사용자 선택 |
 | DB | MongoDB + Mongoose | 사용자 선택 / 스키마 검증은 Mongoose로 처리 |
 | API | Next.js Route Handlers (`app/api/**`) | 백엔드·프론트 역할 분리 가능 |

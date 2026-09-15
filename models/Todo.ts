@@ -14,6 +14,7 @@ const schema = new mongoose.Schema(
     },
     status: { type: String, enum: TODO_STATUSES, default: "todo" },
     weeklyPlanId: { type: mongoose.Schema.Types.ObjectId, ref: "WeeklyPlan", default: null },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
   },
   { toJSON },
 );

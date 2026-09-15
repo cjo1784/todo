@@ -3,7 +3,7 @@ import { isDateString } from "@/lib/date";
 import { Todo } from "@/models/Todo";
 import { WeeklyPlan } from "@/models/WeeklyPlan";
 
-export const GET = handle(async (req: Request) => {
+export const GET = handle(async (req: Request, _ctx, user) => {
   const params = new URL(req.url).searchParams;
   const filter: Record<string, string> = {};
   const date = params.get("date");
@@ -16,11 +16,11 @@ export const GET = handle(async (req: Request) => {
     assertObjectId(weeklyPlanId, "weeklyPlanId");
     filter.weeklyPlanId = weeklyPlanId;
   }
-  return Response.json(await Todo.find(filter).sort({ date: 1, _id: 1 }));
+  return Response.json(await Todo.find({ ...filter, userId: user._id }).sort({ date: 1, _id: 1 }));
 });
 
-export const POST = handle(async (req: Request) => {
+export const POST = handle(async (req: Request, _ctx, user) => {
   const data = await readBody(req, ["title", "date", "weeklyPlanId"]);
-  await assertRef(WeeklyPlan, data.weeklyPlanId, "weeklyPlanId");
-  return Response.json(await Todo.create(data), { status: 201 });
+  await assertRef(WeeklyPlan, data.weeklyPlanId, "weeklyPlanId", user._id);
+  return Response.json(await Todo.create({ ...data, userId: user._id }), { status: 201 });
 });

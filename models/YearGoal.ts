@@ -9,6 +9,7 @@ const schema = new mongoose.Schema(
       required: true,
       validate: { validator: Number.isInteger, message: "year must be an integer" },
     },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
   },
   { toJSON },
 );

@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
+import { requireUser } from "@/lib/auth";
 import { connectDB } from "@/lib/db";
+import type { UserDoc } from "@/models/User";
 
 export type IdContext = { params: Promise<{ id: string }> };
 
@@ -17,12 +19,14 @@ function errorResponse(status: number, code: string, message: string, details: u
   return Response.json({ error: { code, message, details } }, { status });
 }
 
-// 모든 route handler 공통: DB 연결(요청 시점) + 에러 → { error: { code, message, details } }
-export function handle<A extends unknown[]>(fn: (...args: A) => Promise<Response>) {
-  return async (...args: A): Promise<Response> => {
+// 모든 route handler 공통: DB 연결(요청 시점) + 로그인 확인(401) + 에러 → { error: { code, message, details } }
+// 세션 사용자는 세 번째 인자로 전달. 모든 /api/**가 handle을 거치므로 인증 누락이 구조적으로 불가능
+export function handle<C = unknown>(fn: (req: Request, ctx: C, user: UserDoc) => Promise<Response>) {
+  return async (req: Request, ctx?: C): Promise<Response> => {
     try {
       await connectDB();
-      return await fn(...args);
+      const user = await requireUser(req);
+      return await fn(req, ctx as C, user);
     } catch (e) {
       if (e instanceof HttpError) return errorResponse(e.status, e.code, e.message);
       if (e instanceof mongoose.Error.ValidationError) {
@@ -52,17 +56,26 @@ export function assertObjectId(id: unknown, field = "id"): asserts id is string 
   }
 }
 
-export async function findOr404<T>(model: mongoose.Model<T>, ctx: IdContext) {
+// 남의 항목은 없는 항목과 똑같이 404 (존재 여부를 노출하지 않음)
+export async function findOr404<T>(model: mongoose.Model<T>, ctx: IdContext, userId: mongoose.Types.ObjectId) {
   const { id } = await ctx.params;
   assertObjectId(id);
-  const doc = await model.findById(id);
+  const doc = await model.findOne({ _id: id, userId } as mongoose.QueryFilter<T>);
   if (!doc) throw new HttpError(404, "NOT_FOUND", "Resource not found");
   return doc;
 }
 
-// 상위 항목 연결: undefined(미전달)/null(해제)은 통과, 그 외엔 실제 존재해야 함
-export async function assertRef<T>(model: mongoose.Model<T>, value: unknown, field: string) {
+// 상위 항목 연결: undefined(미전달)/null(해제)은 통과, 그 외엔 본인 소유로 실제 존재해야 함
+export async function assertRef<T>(
+  model: mongoose.Model<T>,
+  value: unknown,
+  field: string,
+  userId: mongoose.Types.ObjectId,
+) {
   if (value === undefined || value === null) return;
-  const ok = typeof value === "string" && /^[0-9a-f]{24}$/i.test(value) && (await model.exists({ _id: value }));
+  const ok =
+    typeof value === "string" &&
+    /^[0-9a-f]{24}$/i.test(value) &&
+    (await model.exists({ _id: value, userId } as mongoose.QueryFilter<T>));
   if (!ok) throw new HttpError(400, "INVALID_REFERENCE", `${field} does not reference an existing item`);
 }

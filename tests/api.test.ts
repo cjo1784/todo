@@ -7,6 +7,9 @@ import * as plans from "@/app/api/weekly-plans/route";
 import * as plan from "@/app/api/weekly-plans/[id]/route";
 import * as goals from "@/app/api/year-goals/route";
 import * as goal from "@/app/api/year-goals/[id]/route";
+import { createSession } from "@/lib/auth";
+import { connectDB } from "@/lib/db";
+import { User } from "@/models/User";
 
 let mongo: MongoMemoryServer;
 const MISSING = "0123456789abcdef01234567";
@@ -15,17 +18,26 @@ const MONDAY = "2026-09-14";
 beforeAll(async () => {
   mongo = await MongoMemoryServer.create();
   process.env.MONGODB_URI = mongo.getUri();
+  await connectDB();
 });
 afterAll(async () => {
   await mongoose.disconnect();
-  await mongo.stop();
+  await mongo?.stop(); // 기동 실패 시 원인 에러만 보이도록 (beforeAll 실패는 파일 FAIL + exit 1로 드러남)
 });
 beforeEach(async () => {
   if (mongoose.connection.db) await mongoose.connection.db.dropDatabase();
+  auth = await loginCookie();
 });
 
+// 인증 헬퍼: 모든 요청에 로그인한 사용자의 session 쿠키를 붙인다
+let auth: { cookie: string };
+const loginCookie = async () => {
+  const user = await User.create({ githubId: 1, username: "tester", avatarUrl: "https://a" });
+  return { cookie: `session=${await createSession(user._id)}` };
+};
+
 const req = (body?: unknown, url = "http://localhost/api") =>
-  new Request(url, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
+  new Request(url, { method: "POST", headers: auth, body: body === undefined ? undefined : JSON.stringify(body) });
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 const json = async (res: Response) => ({ status: res.status, body: res.status === 204 ? null : await res.json() });
 
@@ -45,7 +57,7 @@ describe("todos", () => {
   it("POST 제목 없음·잘못된 날짜·잘못된 JSON → 400", async () => {
     expect((await todos.POST(req({}))).status).toBe(400);
     expect((await todos.POST(req({ title: "a", date: "2026-02-30" }))).status).toBe(400);
-    expect((await todos.POST(new Request("http://x", { method: "POST", body: "{" }))).status).toBe(400);
+    expect((await todos.POST(new Request("http://x", { method: "POST", headers: auth, body: "{" }))).status).toBe(400);
   });
 
   it("PATCH {status: invalid} → 400, 정상 변경 → 200", async () => {
@@ -105,7 +117,7 @@ describe("weekly-plans", () => {
     const p = await createPlan();
     const ts = await Promise.all([1, 2, 3, 4].map((n) => createTodo({ title: `t${n}`, weeklyPlanId: p.id })));
     await todo.PATCH(req({ status: "done" }), ctx(ts[0].id));
-    const list = await json(await plans.GET());
+    const list = await json(await plans.GET(req()));
     expect(list.body[0]).toMatchObject({ id: p.id, todoCount: 4, doneCount: 1, progress: 25 });
     const one = await json(await plan.GET(req(), ctx(p.id)));
     expect(one.body.progress).toBe(25);
@@ -134,7 +146,7 @@ describe("year-goals", () => {
     const p = await createPlan({ yearGoalId: g.body.id });
     expect(p.yearGoalId).toBe(g.body.id);
     expect((await json(await goal.PATCH(req({ title: "G2" }), ctx(g.body.id)))).body.title).toBe("G2");
-    expect((await json(await goals.GET())).body).toHaveLength(1);
+    expect((await json(await goals.GET(req()))).body).toHaveLength(1);
     expect((await goal.DELETE(req(), ctx(g.body.id))).status).toBe(204);
     expect((await json(await plan.GET(req(), ctx(p.id)))).body.yearGoalId).toBeNull();
     expect((await goal.GET(req(), ctx(g.body.id))).status).toBe(404);
