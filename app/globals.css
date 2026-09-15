@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+/* 개발자 테마 전용 구조(프롬프트, // 제목, 텍스트 진행률 바 등) 보이기/숨기기: dev:hidden, hidden dev:inline */
+@custom-variant dev (&:where([data-theme=dev], [data-theme=dev] *));
+
+/* 테마 토큰. 컴포넌트는 bg-surface, text-fg 같은 시맨틱 클래스만 쓴다. 기본 = 컬러풀 카드형 */
+:root {
+  --page: linear-gradient(180deg, #fffaf3 0%, #f5f3ff 100%);
+  --font: system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --surface: #ffffff;
+  --surface-2: #f4f4f5;
+  --card-line: #ffffff;
+  --fg: #18181b;
+  --muted: #52525b;
+  --line: #d4d4d8;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-fg: #ffffff;
+  --accent-soft: #eef2ff;
+  --accent-strong: #3730a3;
+  --danger: #be123c;
+  --danger-soft: #fff1f2;
+  --goal-soft: #ede9fe;
+  --goal-fg: #4c1d95;
+  --goal-line: #a78bfa;
+  --ok: #059669;
+  --todo-bg: #f0f9ff;
+  --todo-line: #bae6fd;
+  --todo-fg: #0c4a6e;
+  --doing-bg: #fffbeb;
+  --doing-line: #fde68a;
+  --doing-fg: #78350f;
+  --done-bg: #ecfdf5;
+  --done-line: #a7f3d0;
+  --done-fg: #064e3b;
+}
+
+/* 개발자 테마: 터미널/IDE 다크 + ANSI 톤. 모든 글자색은 배경 대비 4.5:1 이상 */
+[data-theme="dev"] {
+  color-scheme: dark;
+  --page: #181818;
+  --font: ui-monospace, "SF Mono", Menlo, "D2Coding", monospace;
+  --surface: #1f1f1f;
+  --surface-2: #2a2d2e;
+  --card-line: #3c3c3c;
+  --fg: #d4d4d4;
+  --muted: #a0a0a0;
+  --line: #3c3c3c;
+  --accent: #569cd6;
+  --accent-hover: #7cb4e4;
+  --accent-fg: #111111;
+  --accent-soft: #1d3346;
+  --accent-strong: #9cdcfe;
+  --danger: #f48771;
+  --danger-soft: #3a1f1c;
+  --goal-soft: #3a2439;
+  --goal-fg: #d7a6d3;
+  --goal-line: #c586c0;
+  --ok: #89d185;
+  --todo-bg: #1b1b1b;
+  --todo-line: #5c5c45;
+  --todo-fg: #dcdcaa;
+  --doing-bg: #1b1b1b;
+  --doing-line: #34506a;
+  --doing-fg: #6cb0e8;
+  --done-bg: #1b1b1b;
+  --done-line: #3f5c3d;
+  --done-fg: #89d185;
+}
+
+/* 개발자 테마는 사각 박스 */
+[data-theme="dev"] * {
+  border-radius: 0 !important;
+}
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-card-line: var(--card-line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-strong: var(--accent-strong);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-goal-soft: var(--goal-soft);
+  --color-goal-fg: var(--goal-fg);
+  --color-goal-line: var(--goal-line);
+  --color-ok: var(--ok);
+  --color-todo-bg: var(--todo-bg);
+  --color-todo-line: var(--todo-line);
+  --color-todo-fg: var(--todo-fg);
+  --color-doing-bg: var(--doing-bg);
+  --color-doing-line: var(--doing-line);
+  --color-doing-fg: var(--doing-fg);
+  --color-done-bg: var(--done-bg);
+  --color-done-line: var(--done-line);
+  --color-done-fg: var(--done-fg);
+}
+
+body {
+  background: var(--page) fixed;
+  color: var(--fg);
+  font-family: var(--font);
+}
