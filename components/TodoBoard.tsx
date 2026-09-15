@@ -36,8 +36,8 @@ import TodoForm from "@/components/TodoForm";
 const ORDER = STATUSES.map((s) => s.value);
 const label = (id: unknown) => STATUSES.find((s) => s.value === id)?.label ?? "컬럼 밖";
 
-// 컬럼별 톤 (테마 토큰 기반. Tailwind가 찾을 수 있게 전체 클래스 문자열로 둠)
-const TONE: Record<Status, { column: string; over: string; title: string; badge: string }> = {
+// 컬럼별 톤 (테마 토큰 기반. Tailwind가 찾을 수 있게 전체 클래스 문자열로 둠). 캘린더도 같은 톤 사용
+export const TONE: Record<Status, { column: string; over: string; title: string; badge: string }> = {
   todo: { column: "border-todo-line bg-todo-bg", over: "ring-todo-fg", title: "text-todo-fg", badge: "bg-todo-line text-todo-fg" },
   doing: { column: "border-doing-line bg-doing-bg", over: "ring-doing-fg", title: "text-doing-fg", badge: "bg-doing-line text-doing-fg" },
   done: { column: "border-done-line bg-done-bg", over: "ring-done-fg", title: "text-done-fg", badge: "bg-done-line text-done-fg" },

@@ -8,6 +8,7 @@ import { buttonClass, focusClass, Themed } from "@/components/ui";
 
 const NAV = [
   { href: "/", label: "칸반 보드", cmd: "board" },
+  { href: "/calendar", label: "캘린더", cmd: "calendar" },
   { href: "/weekly", label: "주간 계획", cmd: "weekly" },
   { href: "/goals", label: "1년 목표", cmd: "goals" },
 ] as const;

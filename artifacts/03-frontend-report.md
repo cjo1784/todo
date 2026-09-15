@@ -1,93 +1,135 @@
-# 03-frontend-report — GitHub OAuth 로그인 (T04 Frontend)
+# 03-frontend-report — 캘린더 화면 (T04 Frontend)
 
-기준: `artifacts/00-input.md` 계약. 새 의존성 없음, git 명령·백엔드/테스트 파일 수정 없음.
+브랜치 `feat/calendar`. 백엔드 변경 없음, 새 의존성 없음, git 명령 없음.
 
 ## 1. 만든/수정한 파일
 | 파일 | 내용 |
 | --- | --- |
-| `app/login/page.tsx` (신규) | 서버 컴포넌트. `PageProps<"/login">`의 `searchParams`(Promise)에서 `error` 읽어 안내. "GitHub로 로그인" = `<a href="/auth/github">` |
-| `components/Header.tsx` | `/api/me` 조회 → 아바타(`next/image` 28px, `alt=username`) + username + 로그아웃 `<form method="post" action="/auth/logout">`. `/login`에서는 내비·사용자 영역 숨김(테마 토글 유지). 사용자 영역과 토글을 한 `ml-auto` 묶음으로 배치 |
-| `lib/client.ts` | `api()`가 401이면 현재 경로가 `/login`이 아닐 때 `window.location.assign("/login")` 후 기존대로 `ApiError` throw. `CODE_TEXT.UNAUTHORIZED` 추가. 204·에러 메시지·훅 동작 불변 |
-| `next.config.ts` | `images.remotePatterns: [{ protocol: "https", hostname: "avatars.githubusercontent.com", pathname: "/u/**" }]`. GitHub `avatar_url`에 `?v=4`가 붙어 `search`는 생략(쿼리 허용) |
+| `app/calendar/page.tsx` (신규) | 서버 컴포넌트. `?view=month\|week&date=YYYY-MM-DD` 읽기. 잘못된 view는 `month`, 잘못된 date(`isDateString` 실패, 예: 2026-02-30)는 오늘로 처리 |
+| `components/Calendar.tsx` (신규) | 도구 막대(이전/오늘/다음, 월간/주간), 주간 계획 진행률(주간 보기), 월·주 격자, 날짜 없는 목록, dnd-kit 드래그, 대화상자 열기 |
+| `components/CalendarDialog.tsx` (신규) | 네이티브 `<dialog>` 틀, `DayPanel`(그 날짜 목록 + `TodoForm` 추가), `TodoDetail`(상태 변경·수정·삭제) |
+| `lib/calendar.ts` (신규) | UTC 순수 함수: `addDays`, `weekDays`, `monthDays`, `shiftDate`, `sameMonth`, `dayLabel`, `periodLabel`. 월요일 계산은 기존 `toMonday` 재사용 |
+| `tests/calendar.test.ts` (신규) | 위 함수 단위 테스트 13개(월 경계, 28·35·42일 격자, 윤년, 월요일 시작, 주·월 이동, 말일 보정, 라벨) |
+| `components/Header.tsx` | NAV에 `{ href: "/calendar", label: "캘린더", cmd: "calendar" }` 한 줄 |
+| `components/TodoBoard.tsx` (담당 밖, 최소 변경) | `const TONE` → `export const TONE` (상태 색을 칸반과 같은 톤으로 재사용). 칸반 동작·마크업 변경 없음 |
 
-칸반·주간·목표 화면 파일은 건드리지 않았다.
+재사용한 것: `useList`/`useAction`/`api`/`today`/`toMonday`, `AsyncState`/`FormError`/`ProgressRing`/`Themed`/`IconButton`과 `ui.tsx` 클래스, `TodoForm`(`defaultDate`로 추가, `initial`로 수정), 칸반의 `TONE`. 칸반 컴포넌트는 복제하지 않았다.
 
-## 2. 화면별 동작
-### `/login`
-- `?error=` 문구(`role="alert"`)
-  - `state` → 보안 확인에 실패했습니다. 다시 시도해 주세요.
-  - `oauth` → GitHub 인증에 실패했습니다. 잠시 후 다시 시도해 주세요.
-  - `config` → 서버에 GitHub OAuth 설정이 없습니다. `docs/AUTH_SETUP.md`를 참고해 환경 변수를 설정해 주세요.
-  - `denied` → 로그인을 취소했습니다.
-  - 그 외 값 → 알 수 없는 오류가 발생했습니다. 다시 시도해 주세요.
-  - 파라미터 없음 → 안내 없음
-- 로그인 버튼은 라우트 핸들러 리다이렉트라 `next/link`가 아닌 일반 `<a>`(전체 페이지 이동)
+## 2. 화면·조작별 동작
+### 보기와 이동
+- 월간: 그 달을 덮는 월~일 주 단위 격자(28·35·42칸). 그 달 밖 날짜는 `bg-surface-2`와 muted 글자. 칸마다 할 일 최대 3개와 "+N개 더"
+- 주간: 7일 칸(데스크톱 7열, 모바일 1열). 위쪽에 그 주(`weekStart === 월요일`) 주간 계획 제목과 `ProgressRing` 진행률
+- 이전/다음/오늘과 월간/주간 전환은 `next/link`로 URL만 바꾼다. 새로고침·공유 시 유지
+- 월 이동은 일자를 그 달 말일 이내로 맞춘다(1/31 → 2/28)
 
-### 헤더
-- `/api/me` 상태: 조회 중 = 28px 아바타 자리 표시(흔들림 최소화) / 200 = 아바타·이름·로그아웃 / 401·실패 = 사용자 영역 없음
-- `/api/me`는 `api()` 대신 `fetch` 직접 사용. `api()`의 401 리다이렉트를 헤더에서 일으키지 않기 위함(화면 리다이렉트는 `proxy.ts` 담당). AbortController로 언마운트 시 취소
-- 로그아웃은 JS 없이 동작하는 네이티브 POST 폼
+### 조작 1: 날짜 칸 클릭 → 추가
+- 날짜 칸의 날짜 버튼을 누르면 대화상자가 열린다. 제목은 "9월 16일 수요일"이고, 그 날짜의 할 일 목록과 날짜가 채워진 `TodoForm`이 들어 있다
+- 추가하면 목록 재조회, 대화상자는 열린 채 유지. 모바일 월간에서는 이 대화상자가 그 날짜 목록 역할도 한다
 
-## 3. 두 테마 처리 (시맨틱 토큰·`dev:` 변형만 사용, 하드코딩 색 없음)
+### 조작 2: 드래그로 날짜 이동
+- 칩의 손잡이를 다른 날짜 칸에 놓으면 `PATCH /api/todos/:id {date}`를 보낸다. 화면에 먼저 반영하고, 실패하면 원래 날짜로 되돌린 뒤 `#calendar-error` 알림을 띄운다(칸반과 같은 방식). 성공하면 `/api/weekly-plans`를 재조회한다
+- 포인터 판정은 `pointerWithin`(커서가 있는 칸)이다. 키보드는 좌표가 없어 `rectIntersection`으로 넘어간다
+- 키보드: 손잡이에서 스페이스/엔터로 들고, 방향키로 그 방향의 가장 가까운 칸이나 날짜 없는 목록으로 옮긴 뒤 스페이스/엔터로 놓는다. ESC는 취소. 한국어 스크린리더 안내 문구 포함
+- 대체 경로: 상세 → 수정 → 날짜 입력
+
+### 조작 3: 할 일 클릭 → 상세
+- 상태 버튼 3개(`aria-pressed`)를 누르면 `PATCH {status}` 후 재조회
+- 수정은 `TodoForm`(`initial`), 삭제는 `confirm` 후 `DELETE`하고 대화상자를 닫는다
+- 칩은 손잡이 버튼과 열기 버튼을 나눴다. 키보드 스페이스/엔터가 드래그 시작과 겹치지 않게 하기 위해서다
+
+### 조작 4: 날짜 없는 할 일 목록
+- 캘린더 옆(xl 이상)이나 아래에 둔 droppable 영역이다
+- 목록 → 날짜 칸으로 끌면 날짜가 생기고, 날짜 칸 → 목록으로 끌면 `PATCH {date: null}`
+
+### 4상태
+- 로딩 "불러오는 중…"(`role=status`), 오류 알림 + "다시 시도"
+- 할 일 0개여도 격자는 보이고 "할 일이 없습니다. 날짜 칸을 눌러 추가해 보세요." 안내를 띄운다
+- 날짜 없는 목록이 비었을 때는 별도 안내 문구
+
+## 3. 두 테마·모바일·접근성
+- 두 테마 모두 시맨틱 토큰과 `dev:` 변형만 쓴다(하드코딩 색 없음). 상태 색은 칸반 `TONE`(todo/doing/done)과 같다
+
 | 위치 | 컬러풀 | 개발자 |
 | --- | --- | --- |
-| 로그인 제목 | ✅ 할 일 관리 (흰 카드 중앙 박스) | `$ gh auth login` (얇은 보더 사각 박스) |
-| 설명 | GitHub 계정으로 로그인하고… | `# GitHub 계정으로 로그인해야 합니다` |
-| 오류 | 연분홍 박스 | `error: …` 접두 |
-| 버튼 | GitHub 아이콘 + GitHub로 로그인 | `❯ GitHub로 로그인` |
-| 헤더 사용자 | 아바타 · username · 로그아웃 | 아바타 · `@username` · `logout` |
+| 제목 | 📅 캘린더 | `$ cal` |
+| 보기 전환 | 월간 / 주간 | `--month` / `--week` |
+| 칩 | 둥근 상태색 칩 | 사각 박스 + `#짧은id` |
+| 주간 계획 | 원형 링 | `[███░░░]` 텍스트 바 |
+| 날짜 없는 목록 | 📥 날짜 없는 할 일 (N) | `// no date (N)` |
+| 상세 상태 버튼 | 할 일 / 진행 중 / 완료 | todo / doing / done |
 
-장식 문자(✅, `$`, `❯`, `@`)는 `aria-hidden`. 테마별 문구는 기존 `Themed` 헬퍼 사용.
+- 모바일(~400px):
+  - 월간 칸은 날짜 숫자 + 상태 점(최대 3) + `+N`만 표시하고 칩은 숨긴다. 날짜를 누르면 목록 대화상자가 열린다
+  - 주간은 1열 목록이라 드래그도 된다
+  - 대화상자 폭은 `min(32rem, 100% - 2rem)`
+- 접근성:
+  - 날짜 버튼 `aria-label="9월 15일 화요일, 할 일 3개"`, 오늘은 `aria-current="date"`, 기간 라벨은 `aria-live="polite"`
+  - 칩 제목 뒤에 sr-only로 상태를 붙인다. 보기 전환 링크는 `aria-current`
+  - 대화상자는 `showModal()`이라 포커스 이동·가두기, ESC 닫기, 닫은 뒤 포커스 복귀를 브라우저가 처리한다. 모든 버튼·링크에 focus-visible
 
-## 4. 계약 사용 방식
-- `GET /api/me` → 200 `{ id, username, avatarUrl }`만 사용(`id`는 표시 안 함) / 그 외 상태는 "사용자 없음"
-- `POST /auth/logout` → 폼 제출, 303 `/login` 응답을 브라우저가 따라감
-- `GET /auth/github` → `<a href>` 전체 이동
-- 모든 `/api/**` 401 → `api()`가 `/login`으로 이동
+## 4. 계약 사용 (백엔드 변경 없음)
+- `GET /api/todos`: 본인 전체를 받아 클라이언트에서 날짜별로 묶는다. `ponytail:` 주석으로 한계를 표시했다(수천 건 이상이면 기간 조회 API 필요)
+- `GET /api/weekly-plans`: 주간 보기 진행률, 할 일 변경 후 재조회
+- `POST /api/todos`(TodoForm), `PATCH /api/todos/:id`(`{date}`, `{date:null}`, `{status}`, 수정 폼 전체), `DELETE /api/todos/:id`
 
-## 5. 검증 (실제 실행, 3000 포트 dev 서버 그대로 사용, build 생략)
+## 5. 검증 (실제 실행)
 | 명령 | 결과 |
 | --- | --- |
-| `npx tsc --noEmit` | 최종 exit 0. 중간 실행 1회에서 `tests/api.test.ts` 2건(TS2554) 에러가 났는데 Backend 담당 파일 작업 중이던 시점이며, 내 파일 에러는 0건. 재실행 시 exit 0 |
-| `npm run lint` | exit 0 (경고 0). `lib/client.ts`의 `@next/next/no-location-assign-relative-destination` 경고는 사유 주석과 함께 해당 줄만 disable — 컴포넌트 밖 fetch 래퍼라 `useRouter` 불가, 세션 상태를 다시 읽는 전체 이동이 의도 |
+| `npx tsc --noEmit` | exit 0 (최종 수정 후) |
+| `npm run lint` | exit 0, 경고 0 (최종 수정 후) |
+| `npx vitest run` | 5 files, 56 tests passed (`tests/calendar.test.ts` 포함, 최종 코드로 재실행) |
 
-### `/login` (Backend 준비 전·후 모두 확인)
-- curl: `?error=state|oauth|config|denied|zzz` 모두 200, 각 문구가 서버 HTML의 `role="alert"`에 포함. 파라미터 없음 → alert 0개, `href="/auth/github"` 존재, 내비 없음
-- 브라우저 데스크톱(1440px): 컬러풀·개발자 `?error=config` 스크린샷 확인. 개발자 테마: 모노 폰트, 배경 `rgb(24,24,24)`, 제목 `$ gh auth login`, 알림 `error: …`
-- 브라우저 모바일(400px iframe): 2테마 × `state/oauth/denied/zzz` 8조합 모두 문구 일치, `scrollWidth === innerWidth`(400), 내비 없음. 스크린샷으로 레이아웃 확인
+### 브라우저 확인 방법
+- 3000 포트 dev 서버 그대로 사용(재시작·종료 안 함)
+- Playwright 헤드리스 Chromium의 **새 격리 컨텍스트**에 `[e2e-check]` 테스트 사용자 세션 쿠키만 넣어 확인했다. 스크린샷은 직접 열어 확인
+- 테스트 데이터(계획 1, 할 일 9)는 API로 만들었다: 오늘, 한 날짜에 4개, 월말, 지난달 끝, 날짜 없음 2, 상태 섞음
 
-### 로그인 상태 헤더 (Backend 준비 후 테스트 세션으로 확인)
-- Atlas `todo` DB에 `[e2e-check]` 사용자 + 세션(`lib/auth.ts`와 같은 sha256 해시, 만료 1시간) 삽입 → `curl -H "Cookie: session=…" /api/me` 200 JSON, `/` 200
-- 브라우저 `/` 데스크톱(컬러풀): 아바타 `alt="[e2e-check]"` 28×28, `/_next/image` 200 image/png로 로드(natural 32px), 이름·로그아웃 표시, 내비 표시, 가로 스크롤 없음. 확대 스크린샷 확인
-  - `next.config.ts` 변경은 dev 서버 재시작 없이 반영됨(`/_next/image?url=avatars…` 200)
-- 모바일 400px: 컬러풀 헤더 2줄(107px) / 개발자 3줄(185px, 모노 폰트가 넓어 토글이 한 줄 아래로), 두 테마 모두 가로 넘침 없음
-  - 처음엔 사용자 영역과 토글이 따로 줄바꿈돼 흩어져서, 한 묶음(`ml-auto flex-wrap justify-end`)으로 고친 뒤 재확인
-- 로그아웃: 헤더 버튼 클릭(네이티브 POST) → `/login` 도착, 내비·로그아웃 폼 없음, `/api/me` 401, DB 세션 문서 1 → 0
-- `api()` 401 리다이렉트: 무효 `session` 쿠키로 `/` 로드 → `proxy.ts` 통과 → 목록 API 401 → `/login` 이동(방문 경로 `/` → `/login`), 헤더 사용자 영역 없음
-- 앱 콘솔 에러 없음(확인된 에러는 모두 브라우저 확장 `chrome-extension://…`)
+### 결과
+| 항목 | 결과 |
+| --- | --- |
+| 월간 데스크톱 | 35칸, 첫 칸 "8월 31일 월요일", 마지막 "10월 4일 일요일". 오늘 `aria-current="date"`. 9/17은 칩 3개 + "+1개 더"(대화상자 목록 4개). 헤더 NAV 현재 "캘린더". 두 테마 가로 넘침 0 |
+| 이동·URL | 다음 달 → `?view=month&date=2026-10-15` "2026년 10월". 주간 전환 후 새로고침해도 `view=week`·7칸 유지. 다음 주 "2026-09-21 ~ 09-27". 오늘 → 이번 주 |
+| 조작 1 추가 | 9/16 칸 클릭 → 대화상자 제목 "9월 16일 수요일", 포커스가 대화상자 안, 날짜 입력값 `2026-09-16`. 추가 → 칸·목록에 표시, API date 일치. ESC로 닫힘, 포커스가 그 날짜 버튼으로 복귀 |
+| 조작 2 포인터 드래그 | 9/15 → 9/22: `PATCH {"date":"2026-09-22"}` 200, API 반영, 원래 칸에서 사라짐. 충돌 판정 수정 후 9/22 → 9/15 재확인 200 |
+| 조작 2 키보드 드래그 | 스페이스 → ← → 스페이스: 9/30 → 9/29 `PATCH` 200. 수정 후 → 로 9/29 → 9/30, →×5로 날짜 없는 목록(`{"date":null}`) 200. ↓ 후 ESC → PATCH 없음, 제자리 |
+| 조작 2 실패 원위치 | PATCH를 가로채 1초 뒤 500 → 드롭 직후 새 칸(9/24)에 먼저 표시 → 오류 후 원래 칸(9/17)으로 복귀, 9/24에서 사라짐, API date 그대로. 알림: "…날짜를 저장하지 못해 원래 자리로 되돌렸습니다. 서버 오류가 발생했습니다…" |
+| 조작 3 상세 | 칩 클릭 → 제목=할 일 제목, 포커스 대화상자 안, 현재 상태 `aria-pressed`. "진행 중" → `PATCH {"status":"doing"}` 200, API doing. 수정에서 날짜 2026-09-25 저장 → 칸 이동. 삭제 → 204, 대화상자 닫힘, API·화면에서 사라짐 |
+| 조작 4 날짜 없는 목록 | 목록 → 9/10: `{"date":"2026-09-10"}` 200, 옆 칸(9/11) 아님 확인. 8/31 칸 → 목록: `{"date":null}` 200, 제목 개수 갱신 |
+| 주간 보기 | "2026-09-14 ~ 09-20", 7칸. 진행률 "[e2e-check] 캘린더 주간 진행률" 25(API 1/4 25%와 일치). 이전 주 href `date=2026-09-09`. 두 테마 가로 넘침 0 |
+| 4상태 | `/api/todos` 가로채기: 로딩 "불러오는 중…" → 500 오류 알림 + 다시 시도 → 빈 배열 응답: 빈 안내 + 35칸 유지, 날짜 없는 목록 (0) |
+| 모바일 400px | 월간·주간 × 두 테마 모두 `scrollWidth === innerWidth`(400), 넘치는 요소 0. 월간 9/17 칸 폭 51px, 점 3개, 칩 0개 표시. 날짜 탭 → 대화상자(폭 362px, 목록 3개). 주간 1열 |
+| 콘솔 | 페이지 오류 없음. 콘솔 에러는 일부러 만든 500 응답 로딩 실패 2건뿐 |
+
+### 검증 중 발견해 고친 것
+1. **넓은 할 일을 끌면 옆 칸에 놓이던 문제**
+   - 날짜 없는 목록의 칩(폭 약 228px)을 왼쪽 손잡이로 잡고 9/10에 놓으면 9/11로 저장됐다
+   - 원인: 기본 `rectIntersection`이 끌리는 칩의 사각형과 겹친 면적으로 칸을 고르는데, 손잡이 오른쪽으로 긴 칩은 옆 칸과 더 많이 겹친다
+   - 수정: 포인터일 때는 `pointerWithin`, 키보드일 때는 `rectIntersection`
+   - 수정 후 포인터·키보드 모두 재확인했다(위 표)
+2. **주간 데스크톱 날짜 라벨 줄바꿈**
+   - 좁은 7열에서 "9월 14일 월요 / 일"로 끊겼다
+   - 보이는 글자를 "9월 14일 월"로 줄였다(`aria-label`은 전체 이름). 수정 후 7개 모두 한 줄(높이 20px), 두 테마 스크린샷 확인
 
 ### 정리
-- 테스트 사용자·세션 삭제: `users` 1건 삭제, `sessions`/`todos`/`weeklyplans`/`yeargoals` 해당 userId 0건, `[e2e-check]` 사용자 잔여 0
-- 임시 스크립트·토큰 파일 삭제, 테스트 쿠키 만료 처리, 브라우저 탭 닫음. localStorage `theme`는 바꾸지 않음(원래 `colorful`). dev 서버는 종료·재시작하지 않음
+- `[e2e-check]` 사용자 기준 삭제: users 1, sessions 1, todos 9, weeklyplans 1, yeargoals 0
+- 삭제 후 전체: users 1, sessions 1(사용자 실제 계정·세션, 시작 전과 같음), `[e2e-check]` 사용자·할 일·계획 0
+- 임시 스크립트와 토큰 파일 삭제, Chrome 탭 닫음
+
+### 사용자 실제 데이터 노출(읽기만, 변경 없음)
+- 처음에는 기존 Chrome 탭에 JS로 테스트 쿠키를 넣었다. 그런데 사용자가 실제 로그인해 둔 httpOnly `session` 쿠키를 JS가 덮어쓸 수 없어서, `/calendar`가 **사용자 실제 계정(cjo1784)의 캘린더로 한 번 표시**됐다
+- 이때 한 일은 DOM 읽기와 스크린샷 1장뿐이다. 클릭·드래그·수정·삭제는 없었다. 바로 탭을 옮기고 닫았으며, 사용자 쿠키도 지우지 않았다(로그아웃되지 않게)
+- 이후 확인은 모두 Playwright 격리 컨텍스트에서 했다
+- `127.0.0.1:3000`은 dev 자원 교차 출처 차단으로 하이드레이션이 되지 않아 쓸 수 없었다(`allowedDevOrigins` 변경은 재시작이 필요해 하지 않음)
 
 ## 6. 미검증
-- 실제 GitHub OAuth 왕복(`/auth/github` → GitHub → 콜백 → 헤더): `GITHUB_CLIENT_ID/SECRET` 입력 후 가능. 실제 GitHub 아바타 URL 형식이 `/u/**`가 아니면 이미지가 400 → 그 경우 `pathname`을 넓혀야 함
-- 테스트 쿠키는 JS로 넣어 httpOnly가 아니었다(서버 동작엔 영향 없음)
-- 헤더 로딩 자리표시가 실제로 흔들림을 얼마나 줄이는지 프레임 단위 측정 안 함
-- 개발자 테마 로그인 상태 데스크톱 스크린샷은 찍지 않음(모바일 iframe으로만 확인)
-- 스크린리더 낭독, 실제 모바일 기기, 키보드 Tab 순서 직접 조작 미확인(모두 네이티브 `a`/`button`이라 기대됨)
+- 실제 터치 기기에서 손잡이 드래그. Playwright는 마우스 이벤트로만 확인했다
+- 스크린리더 실제 낭독(드래그 안내·대화상자 이름·`aria-current="date"`)은 속성값만 확인했다
+- 개발자 테마에서 드래그·상세 조작. 조작은 컬러풀에서 하고, 개발자 테마는 화면·상세 대화상자 스크린샷만 확인했다
+- 모바일 월간에서는 칩을 숨겨 끌기 대상이 없다(설계상 축약). 모바일 날짜 이동은 주간 보기 드래그나 상세 → 수정 날짜 입력으로 해야 하며, 모바일 폭에서 이 경로를 따로 조작해 보지는 않았다
+- 날짜 목록 대화상자 → 할 일 상세로 넘어갈 때(대화상자 다시 열림) 닫은 뒤 포커스가 어디로 가는지는 확인하지 않았다(원래 날짜 버튼이 아니라 body일 수 있음)
+- 드래그 성공 후 주간 계획 재조회 요청이 가는지는 코드로만 확인했다. 날짜 이동은 진행률 값을 바꾸지 않아 화면 차이로는 확인되지 않는다
+- 첫 확인 실행에서 주간 페이지 로드가 한 번 멈춘 적이 있다(API 3개 모두 대기). 직후 curl로 0.1~0.2초 응답을 확인했고 재실행은 정상이었다. dev 서버의 일시적 지연으로 보이지만 원인은 확인하지 못했다
 
 ## 7. 계약 이슈
-- 없음. `/api/me` 401 본문 `{ error: { code: "UNAUTHORIZED", message: "Login required", details: null } }`, `POST /auth/logout` 303 `/login`, 미로그인 `/` 307 `/login` 모두 계약과 일치
-- 참고: `proxy.ts`는 쿠키 존재만 보므로 만료·무효 쿠키 사용자는 화면에 들어온 뒤 API 401로 `/login`에 간다. 이 경로는 `lib/client.ts`의 401 처리로 커버됨(위에서 확인)
-
-## 8. QA 재작업 (D5)
-- 문제: `/api/me`가 401이 아닌 이유(500·네트워크·JSON 파싱 실패)로 실패하면 헤더에서 로그아웃 버튼까지 사라져 로그아웃할 방법이 없음
-- 수정: `components/Header.tsx`만 변경
-  - `me` 상태: `undefined`(조회 중) / `null`(401 → 사용자 영역 없음) / `"error"`(그 외 실패) / `Me`
-  - 아바타·username은 `Me`일 때만, 로그아웃 폼(`POST /auth/logout`)은 `Me` 또는 `"error"`일 때 표시
-  - 두 테마 문구(`로그아웃` / `logout`)·스타일 그대로
-- 검증: `npx tsc --noEmit` exit 0, `npm run lint` exit 0
-  - 수정 중 `.then` 반환 타입 추론 에러(TS2345)가 2회 나서 `async` 콜백으로 바꾼 뒤 통과
-- 미검증: 브라우저에서 `/api/me` 500·네트워크 실패를 실제로 만들어 버튼 표시를 확인하지는 않음(Backend 파일을 바꾸지 않고는 500 재현이 어려움). 401·200 경로 코드는 조건만 분리했고 동작은 이전과 같음
-- D6(401 이동 직전 오류 문구 잠깐 표시)은 지시대로 이번 범위에서 제외
+- 없음. 부분 `PATCH {date}`, `PATCH {date: null}`, `PATCH {status}` 모두 기존 계약대로 동작했다
+- 참고(백엔드 변경 요청 아님): 기간 조회(`GET /api/todos?from=&to=`)가 없어 전체를 조회한다. 데이터가 많아지면 필요하다(`components/Calendar.tsx`의 `ponytail:` 주석)
