@@ -37,15 +37,17 @@ export default function CalendarDialog({ title, onClose, children }: { title: Re
   );
 }
 
-// 날짜 칸 클릭: 그 날짜의 할 일 목록 + 날짜가 채워진 추가 폼
+// 날짜 칸 클릭: 그 날짜의 할 일 목록 + 날짜가 채워진 추가 폼. end가 있으면(여러 날짜 선택) 날짜마다 하나씩 추가
 export function DayPanel({
   date,
+  end,
   todos,
   plans,
   onOpen,
   onAdded,
 }: {
   date: string;
+  end?: string;
   todos: Todo[];
   plans: WeeklyPlan[];
   onOpen: (id: string) => void;
@@ -53,7 +55,9 @@ export function DayPanel({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      {todos.length > 0 ? (
+      {end ? (
+        <p className="text-sm text-muted">선택한 날짜마다 같은 할 일이 하나씩 추가됩니다. 완료는 날짜별로 따로 체크합니다.</p>
+      ) : todos.length > 0 ? (
         <ul aria-label="이 날짜의 할 일" className="flex flex-col gap-1.5">
           {todos.map((t) => (
             <li key={t.id}>
@@ -75,7 +79,7 @@ export function DayPanel({
           <Themed colorful="이 날짜에 할 일이 없습니다." dev="# 이 날짜에 할 일이 없습니다." />
         </p>
       )}
-      <TodoForm plans={plans} defaultDate={date} onDone={onAdded} />
+      <TodoForm plans={plans} defaultDate={date} defaultEndDate={end} range onDone={onAdded} />
     </div>
   );
 }

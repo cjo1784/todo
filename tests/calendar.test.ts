@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { addDays, dayLabel, monthDays, periodLabel, shiftDate, weekDays } from "@/lib/calendar";
+import { addDays, datesBetween, dayLabel, monthDays, periodLabel, shiftDate, weekDays } from "@/lib/calendar";
+
+describe("datesBetween (여러 날짜 선택)", () => {
+  it("같은 날은 하루", () => expect(datesBetween("2026-09-15", "2026-09-15")).toEqual(["2026-09-15"]));
+  it("순서 무관, 월 경계 포함", () => expect(datesBetween("2026-10-01", "2026-09-29")).toEqual(["2026-09-29", "2026-09-30", "2026-10-01"]));
+  it("윤년 2월", () => expect(datesBetween("2028-02-28", "2028-03-01")).toEqual(["2028-02-28", "2028-02-29", "2028-03-01"]));
+});
 
 describe("monthDays (월요일 시작 월 격자)", () => {
   it("1일이 화요일인 달: 앞 달 월요일부터 다음 달 일요일까지 35일", () => {

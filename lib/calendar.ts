@@ -12,6 +12,12 @@ const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
 export const addDays = (date: string, n: number) => ymd(new Date(utc(date).getTime() + n * DAY_MS));
 
+// a~b 사이 모든 날짜 (양 끝 포함, 순서 무관)
+export function datesBetween(a: string, b: string) {
+  const [from, to] = a <= b ? [a, b] : [b, a];
+  return Array.from({ length: (utc(to).getTime() - utc(from).getTime()) / DAY_MS + 1 }, (_, i) => addDays(from, i));
+}
+
 export const weekDays = (date: string) => Array.from({ length: 7 }, (_, i) => addDays(toMonday(date), i));
 
 // 그 달을 덮는 월~일 주 단위 날짜 (28·35·42일)

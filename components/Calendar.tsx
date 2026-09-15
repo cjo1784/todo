@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -21,7 +21,7 @@ import {
   type UniqueIdentifier,
 } from "@dnd-kit/core";
 import { api, today, useList, type Status, type Todo, type WeeklyPlan } from "@/lib/client";
-import { dayLabel, monthDays, periodLabel, sameMonth, shiftDate, WEEKDAY_HEADERS, weekDays, type CalendarView } from "@/lib/calendar";
+import { datesBetween, dayLabel, monthDays, periodLabel, sameMonth, shiftDate, WEEKDAY_HEADERS, weekDays, type CalendarView } from "@/lib/calendar";
 import {
   AsyncState,
   buttonClass,
@@ -68,7 +68,11 @@ const dropTarget: CollisionDetection = (args) => {
   return hits.length > 0 ? hits : rectIntersection(args);
 };
 
-type Dialog = { kind: "day"; date: string } | { kind: "todo"; id: string } | null;
+type Dialog = { kind: "day"; date: string; end?: string } | { kind: "todo"; id: string } | null;
+
+// 칸의 빈 곳(버튼·링크 제외)이 가리키는 날짜
+const cellDate = (el: EventTarget | null) =>
+  el instanceof Element && !el.closest("button,a") ? el.closest<HTMLElement>("[data-date]")?.dataset.date : undefined;
 
 export default function Calendar({ view, date }: { view: CalendarView; date?: string }) {
   const base = date ?? today();
@@ -78,6 +82,41 @@ export default function Calendar({ view, date }: { view: CalendarView; date?: st
   const [dialog, setDialog] = useState<Dialog>(null);
   const [dragError, setDragError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
+  const [sel, setSel] = useState<{ from: string; to: string } | null>(null);
+  const justSelected = useRef(false); // 여러 날짜 선택을 시작 칸에서 끝내면 뒤따르는 click을 무시
+  const [selFrom, selTo] = sel ? [sel.from, sel.to].sort() : [];
+
+  // 마우스로 빈 칸을 누른 채 끌어 여러 날짜 선택 → 놓으면 기간 추가 창. 한 칸 클릭은 DayCell onClick
+  // ponytail: 터치는 스크롤과 겹쳐 끌기 선택 제외. 대신 추가 창의 종료 날짜 입력 사용
+  function startSelect(e: React.PointerEvent) {
+    justSelected.current = false;
+    const d = e.button === 0 && e.pointerType !== "touch" ? cellDate(e.target) : undefined;
+    if (!d) return;
+    e.preventDefault(); // 끄는 동안 글자 선택 방지
+    setSel({ from: d, to: d });
+  }
+  function extendSelect(e: React.PointerEvent) {
+    const d = sel && document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-date]")?.dataset.date;
+    if (sel && d && d !== sel.to) setSel({ ...sel, to: d });
+  }
+  useEffect(() => {
+    if (!sel) return;
+    const finish = () => {
+      if (sel.from !== sel.to) {
+        justSelected.current = true;
+        const [date, end] = [sel.from, sel.to].sort();
+        setDialog({ kind: "day", date, end });
+      }
+      setSel(null);
+    };
+    window.addEventListener("pointerup", finish);
+    return () => window.removeEventListener("pointerup", finish);
+  }, [sel]);
+  function openDay(e: React.MouseEvent, date: string) {
+    if (justSelected.current) return void (justSelected.current = false);
+    if (cellDate(e.target)) setDialog({ kind: "day", date });
+  }
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: nearestCell }),
@@ -234,6 +273,8 @@ export default function Calendar({ view, date }: { view: CalendarView; date?: st
                   </div>
                 )}
                 <ol
+                  onPointerDown={startSelect}
+                  onPointerMove={extendSelect}
                   className={
                     view === "month" ? "grid grid-cols-7 gap-px overflow-hidden rounded-2xl border border-line bg-line" : "grid gap-2 lg:grid-cols-7"
                   }
@@ -245,11 +286,19 @@ export default function Calendar({ view, date }: { view: CalendarView; date?: st
                       view={view}
                       todos={byDate.get(d) ?? []}
                       outside={view === "month" && !sameMonth(d, base)}
+                      selected={!!sel && d >= selFrom && d <= selTo}
                       onAdd={() => setDialog({ kind: "day", date: d })}
+                      onCellClick={(e) => openDay(e, d)}
                       onOpen={(id) => setDialog({ kind: "todo", id })}
                     />
                   ))}
                 </ol>
+                <p className="mt-2 text-xs text-muted">
+                  <Themed
+                    colorful="날짜 칸을 누르면 할 일 추가 · 여러 날짜를 끌어 선택하면 날마다 하나씩 추가"
+                    dev="# click: add · drag across days: add one per day"
+                  />
+                </p>
               </section>
               <Undated todos={undated} onOpen={(id) => setDialog({ kind: "todo", id })} />
             </div>
@@ -265,9 +314,14 @@ export default function Calendar({ view, date }: { view: CalendarView; date?: st
       </AsyncState>
 
       {dialog?.kind === "day" && (
-        <CalendarDialog key={`day-${dialog.date}`} title={dayLabel(dialog.date)} onClose={() => setDialog(null)}>
+        <CalendarDialog
+          key={`day-${dialog.date}-${dialog.end ?? ""}`}
+          title={dialog.end ? `${dayLabel(dialog.date)} ~ ${dayLabel(dialog.end)} (${datesBetween(dialog.date, dialog.end).length}일)` : dayLabel(dialog.date)}
+          onClose={() => setDialog(null)}
+        >
           <DayPanel
             date={dialog.date}
+            end={dialog.end}
             todos={byDate.get(dialog.date) ?? []}
             plans={plans.data ?? []}
             onOpen={(id) => setDialog({ kind: "todo", id })}
@@ -297,28 +351,36 @@ function DayCell({
   view,
   todos,
   outside,
+  selected,
   onAdd,
+  onCellClick,
   onOpen,
 }: {
   date: string;
   view: CalendarView;
   todos: Todo[];
   outside: boolean;
+  selected: boolean;
   onAdd: () => void;
+  onCellClick: (e: React.MouseEvent) => void;
   onOpen: (id: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: date });
   const month = view === "month";
   const isToday = date === today();
   const more = month ? todos.length - 3 : 0;
+  const bg = selected ? "bg-accent-soft" : month && outside ? "bg-surface-2" : "bg-surface";
   return (
+    // 칸 빈 곳 클릭 = 추가 창 (키보드는 아래 날짜 버튼)
     <li
       ref={setNodeRef}
-      className={`flex min-w-0 flex-col gap-1 transition ${
+      data-date={date}
+      onClick={onCellClick}
+      className={`flex min-w-0 cursor-pointer flex-col gap-1 transition ${bg} ${
         month
-          ? `min-h-16 p-1 sm:min-h-28 sm:p-1.5 ${outside ? "bg-surface-2" : "bg-surface"}`
-          : "min-h-24 rounded-2xl border border-card-line bg-surface p-2 shadow-sm shadow-black/5 lg:min-h-64 dev:shadow-none"
-      } ${isOver ? "ring-2 ring-accent ring-inset" : ""}`}
+          ? "min-h-16 p-1 sm:min-h-28 sm:p-1.5"
+          : "min-h-24 rounded-2xl border border-card-line p-2 shadow-sm shadow-black/5 lg:min-h-64 dev:shadow-none"
+      } ${isOver || selected ? "ring-2 ring-accent ring-inset" : ""}`}
     >
       {/* 날짜 칸 = 이 버튼: 그 날짜의 목록 + 추가 폼 열기 */}
       <button

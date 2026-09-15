@@ -1,39 +1,63 @@
 "use client";
 
 import { useId, useState } from "react";
-import { api, fieldError, STATUSES, useAction, type Status, type Todo, type WeeklyPlan } from "@/lib/client";
+import { api, ApiError, fieldError, STATUSES, useAction, type Status, type Todo, type WeeklyPlan } from "@/lib/client";
+import { datesBetween } from "@/lib/calendar";
 import { buttonClass, fieldLabelClass, FormError, inputClass, primaryButtonClass } from "@/components/ui";
 
-// initial 있으면 수정(PATCH), 없으면 생성(POST)
+const MAX_DAYS = 62;
+
+// initial 있으면 수정(PATCH), 없으면 생성(POST). range면 종료 날짜까지 날짜마다 하나씩 생성
 export default function TodoForm({
   plans,
   initial,
   defaultDate = "",
+  defaultEndDate = "",
+  range = false,
   onDone,
   onCancel,
 }: {
   plans: WeeklyPlan[];
   initial?: Todo;
   defaultDate?: string;
+  defaultEndDate?: string;
+  range?: boolean;
   onDone: () => void;
   onCancel?: () => void;
 }) {
   const id = useId();
   const [title, setTitle] = useState(initial?.title ?? "");
   const [date, setDate] = useState(initial ? (initial.date ?? "") : defaultDate);
+  const [endDate, setEndDate] = useState(defaultEndDate);
   const [status, setStatus] = useState<Status>(initial?.status ?? "todo");
   const [planId, setPlanId] = useState(initial?.weeklyPlanId ?? "");
   const { pending, error, run } = useAction();
+  const dates = range && !initial && date && endDate ? datesBetween(date, endDate) : [];
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const body = { title, date: date || null, weeklyPlanId: planId || null };
+    if (dates.length > 1) return submitMany(body);
     const ok = await run(() =>
       initial ? api(`/api/todos/${initial.id}`, "PATCH", { ...body, status }) : api("/api/todos", "POST", body),
     );
     if (!ok) return;
     if (!initial) setTitle("");
     onDone();
+  }
+
+  // ponytail: 날짜마다 POST 한 번씩. 한 번에 수백 건이 필요해지면 일괄 생성 API 추가
+  async function submitMany(body: { title: string; weeklyPlanId: string | null }) {
+    let created = 0;
+    const ok = await run(async () => {
+      if (dates.length > MAX_DAYS) throw new ApiError(`한 번에 최대 ${MAX_DAYS}일까지 추가할 수 있습니다`);
+      const results = await Promise.allSettled(dates.map((d) => api("/api/todos", "POST", { ...body, date: d })));
+      created = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failed) throw new ApiError(`${dates.length}일 중 ${dates.length - created}일을 추가하지 못했습니다. ${(failed.reason as Error).message}`);
+    });
+    if (ok) setTitle("");
+    if (created > 0) onDone(); // 일부만 성공해도 만들어진 건 화면에 반영
   }
 
   const small = `${inputClass} py-1.5 text-sm`;
@@ -58,15 +82,21 @@ export default function TodoForm({
         </label>
         {!initial && (
           <button type="submit" className={`${primaryButtonClass} py-3`} disabled={pending}>
-            {pending ? "추가 중…" : "+ 추가"}
+            {pending ? "추가 중…" : dates.length > 1 ? `+ ${dates.length}일에 추가` : "+ 추가"}
           </button>
         )}
       </div>
       <div className="flex flex-wrap items-end gap-2">
         <label className={fieldLabelClass}>
-          날짜
+          {range && !initial ? "시작 날짜" : "날짜"}
           <input type="date" className={small} value={date} onChange={(e) => setDate(e.target.value)} {...fieldError(error, "date", `${id}-err`)} />
         </label>
+        {range && !initial && (
+          <label className={fieldLabelClass}>
+            종료 날짜 (선택)
+            <input type="date" className={small} value={endDate} min={date || undefined} onChange={(e) => setEndDate(e.target.value)} />
+          </label>
+        )}
         {initial && (
           <label className={fieldLabelClass}>
             상태
